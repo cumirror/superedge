@@ -51,17 +51,29 @@ type EdgeServerHandler struct {
 
 	// cacheManager
 	cacheManager *cache.CacheManager
+
+	// the address list of lite-apiserver listen
+	ListenAddress              string
+	Port                       int
+	Incluster                  bool
+	DisableLoadBalancerIngress bool
 }
 
 func NewEdgeServerHandler(config *config.LiteServerConfig, transportManager *transport.TransportManager,
 	cacheManager *cache.CacheManager, transportChannel <-chan string) (http.Handler, error) {
 	h := &EdgeServerHandler{
-		apiserverUrl:     config.KubeApiserverUrl,
-		apiserverPort:    config.KubeApiserverPort,
-		transportManager: transportManager,
-		transportChannel: transportChannel,
-		reverseProxyMap:  make(map[string]*EdgeReverseProxy),
-		cacheManager:     cacheManager,
+		apiserverUrl:               config.KubeApiserverUrl,
+		apiserverPort:              config.KubeApiserverPort,
+		transportManager:           transportManager,
+		transportChannel:           transportChannel,
+		reverseProxyMap:            make(map[string]*EdgeReverseProxy),
+		cacheManager:               cacheManager,
+		Port:                       config.Port,
+		Incluster:                  config.Incluster,
+		DisableLoadBalancerIngress: config.DisableLoadBalancerIngress,
+	}
+	if len(config.ListenAddress) > 0 {
+		h.ListenAddress = config.ListenAddress[0]
 	}
 
 	// init proxy
@@ -75,13 +87,13 @@ func NewEdgeServerHandler(config *config.LiteServerConfig, transportManager *tra
 
 func (h *EdgeServerHandler) initProxies() {
 	klog.Infof("init default proxy")
-	h.defaultProxy = NewEdgeReverseProxy(h.transportManager.GetTransport(""), h.apiserverUrl, h.apiserverPort, h.cacheManager)
+	h.defaultProxy = NewEdgeReverseProxy(h.transportManager.GetTransport(""), h.apiserverUrl, h.apiserverPort, h.cacheManager, h.ListenAddress, h.Port, h.Incluster, h.DisableLoadBalancerIngress)
 
 	h.proxyMapLock.Lock()
 	defer h.proxyMapLock.Unlock()
 	for commonName, t := range h.transportManager.GetTransportMap() {
 		klog.Infof("init proxy for %s", commonName)
-		proxy := NewEdgeReverseProxy(t, h.apiserverUrl, h.apiserverPort, h.cacheManager)
+		proxy := NewEdgeReverseProxy(t, h.apiserverUrl, h.apiserverPort, h.cacheManager, h.ListenAddress, h.Port, h.Incluster, h.DisableLoadBalancerIngress)
 		h.reverseProxyMap[commonName] = proxy
 	}
 
@@ -97,7 +109,7 @@ func (h *EdgeServerHandler) start() {
 				t := h.transportManager.GetTransport(commonName)
 
 				klog.Infof("add new proxy for %s", commonName)
-				proxy := NewEdgeReverseProxy(t, h.apiserverUrl, h.apiserverPort, h.cacheManager)
+				proxy := NewEdgeReverseProxy(t, h.apiserverUrl, h.apiserverPort, h.cacheManager, h.ListenAddress, h.Port, h.Incluster, h.DisableLoadBalancerIngress)
 
 				h.proxyMapLock.Lock()
 				h.reverseProxyMap[commonName] = proxy

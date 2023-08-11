@@ -27,24 +27,26 @@ import (
 )
 
 type RunServerOptions struct {
-	KubeApiserverUrl    string
-	KubeApiserverPort   int
-	ListenAddress       []string
-	Port                int
-	BackendTimeout      int
-	Profiling           bool
-	CAFile              string
-	CertFile            string
-	KeyFile             string
-	ApiserverCAFile     string
-	ModifyRequestAccept bool
-	CacheType           string
-	FileCachePath       string
-	BadgerCachePath     string
-	BoltCacheFile       string
-	NetworkInterface    string
-	Insecure            bool
-	URLMultiplexCache   []string
+	KubeApiserverUrl           string
+	KubeApiserverPort          int
+	ListenAddress              []string
+	Port                       int
+	BackendTimeout             int
+	Profiling                  bool
+	CAFile                     string
+	CertFile                   string
+	KeyFile                    string
+	ApiserverCAFile            string
+	ModifyRequestAccept        bool
+	CacheType                  string
+	FileCachePath              string
+	BadgerCachePath            string
+	BoltCacheFile              string
+	NetworkInterface           string
+	Insecure                   bool
+	URLMultiplexCache          []string
+	Incluster                  bool
+	DisableLoadBalancerIngress bool
 }
 
 func NewRunServerOptions() *RunServerOptions {
@@ -78,6 +80,9 @@ func (s *RunServerOptions) ApplyTo(c *config.LiteServerConfig) error {
 	} else {
 		c.ApiserverCAFile = s.CAFile
 	}
+
+	c.Incluster = s.Incluster
+	c.DisableLoadBalancerIngress = s.DisableLoadBalancerIngress
 
 	return nil
 }
@@ -144,6 +149,8 @@ func (s *RunServerOptions) AddFlags(fs *pflag.FlagSet) {
 	fs.StringVar(&s.BoltCacheFile, "bolt-cache-file", "/data/lite-apiserver/bolt/superedge.db", "the file for bolt storage")
 	fs.StringVar(&s.NetworkInterface, "network-interface", "", "the network interface list of node, separated by commas")
 	fs.BoolVar(&s.Insecure, "insecure", false, "verify the certificate of kube-apiserver")
+	fs.BoolVar(&s.Incluster, "incluster", false, "use lite-apiserver or kube-apiserver")
+	fs.BoolVar(&s.DisableLoadBalancerIngress, "disableLoadBalancerIngress", true, "disable loadbalance ingress in edge node")
 	fs.StringArrayVar(&s.URLMultiplexCache,
 		"url-mux-cache",
 		[]string{},
