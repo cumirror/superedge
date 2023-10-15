@@ -139,7 +139,7 @@ func syncCache() error {
 
 	// check cloud node
 
-	r, err := labels.NewRequirement(util.CloudNodeLabelKey, selection.Equals, []string{"enable"})
+	r, err := labels.NewRequirement(util.EdgeNodeLabelKey, selection.NotEquals, []string{"enable"})
 	if err != nil {
 		return err
 	}
