@@ -18,16 +18,17 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+
 	"github.com/superedge/superedge/pkg/tunnel/proto"
 	"github.com/superedge/superedge/pkg/tunnel/proxy/common"
 	"github.com/superedge/superedge/pkg/tunnel/proxy/modules/stream/streammng/connect"
 	"github.com/superedge/superedge/pkg/tunnel/tunnelcontext"
 	"github.com/superedge/superedge/pkg/tunnel/util"
 	"k8s.io/klog/v2"
-	"net"
-	"net/http"
-	"net/url"
-	"os"
 )
 
 func AccessHandler(msg *proto.StreamMsg) error {
@@ -66,6 +67,11 @@ func AccessHandler(msg *proto.StreamMsg) error {
 	}
 
 	localNode := tunnelcontext.GetContext().GetNode(msg.GetNode())
+	if localNode == nil {
+		nodeErr := fmt.Errorf("the  tunnel of node %s is broken", msg.GetNode())
+		klog.ErrorS(nodeErr, "the edge node sending the request is disconnected from the cloud", util.STREAM_TRACE_ID, msg.GetTopic())
+		return nodeErr
+	}
 	req, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(msg.Data)))
 	if err != nil {
 		klog.ErrorS(err, "failed to parse httpRequest", util.STREAM_TRACE_ID, msg.GetTopic())
@@ -84,7 +90,7 @@ func AccessHandler(msg *proto.StreamMsg) error {
 		if node == nil {
 			nodeErr := fmt.Errorf("the  tunnel of node %s is broken", nodeName)
 			klog.ErrorS(nodeErr, "the edge node sending the request is disconnected from the cloud", util.STREAM_TRACE_ID, msg.GetTopic())
-			errMsg(node, nodeErr)
+			return nodeErr
 		}
 		targetServer := net.JoinHostPort(ip, port)
 		remoteConn, err := net.Dial("tcp", targetServer)
@@ -140,7 +146,7 @@ func AccessHandler(msg *proto.StreamMsg) error {
 			remoteNode.Send2Node(msg)
 		} else {
 			remoteErr := fmt.Errorf("the remote edge node %s is not connected to the cloud", info.nodeName)
-			errMsg(localNode, remoteErr)
+			klog.ErrorS(remoteErr, "the remote node sending the request is disconnected from the cloud", util.STREAM_TRACE_ID, msg.GetTopic())
 			return remoteErr
 		}
 

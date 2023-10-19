@@ -16,16 +16,17 @@ package connect
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"strings"
+
 	uuid "github.com/satori/go.uuid"
 	"github.com/superedge/superedge/pkg/tunnel/proto"
 	"github.com/superedge/superedge/pkg/tunnel/proxy/common"
 	"github.com/superedge/superedge/pkg/tunnel/tunnelcontext"
 	"github.com/superedge/superedge/pkg/tunnel/util"
 	"k8s.io/klog/v2"
-	"net"
-	"net/http"
-	"os"
-	"strings"
 )
 
 func HttpProxyEdgeServer(conn net.Conn) {
@@ -73,6 +74,7 @@ func HttpProxyEdgeServer(conn net.Conn) {
 				err := util.InternalServerErrorMsg(conn, err.Error(), req.Context().Value(util.STREAM_TRACE_ID).(string))
 				if err != nil {
 					klog.ErrorS(err, "failed to write resp msg", util.STREAM_TRACE_ID, req.Context().Value(util.STREAM_TRACE_ID))
+					return
 				}
 			}
 			go common.Read(conn, node, util.HTTP_PROXY, util.TCP_FORWARD, tunnelConn.GetUid())
@@ -81,6 +83,7 @@ func HttpProxyEdgeServer(conn net.Conn) {
 			err := util.InternalServerErrorMsg(conn, fmt.Sprintf("failed to get edge node %s", os.Getenv(util.NODE_NAME_ENV)), req.Context().Value(util.STREAM_TRACE_ID).(string))
 			if err != nil {
 				klog.Errorf("failed to write resp msg, error:%v", err)
+				return
 			}
 		}
 
@@ -90,6 +93,7 @@ func HttpProxyEdgeServer(conn net.Conn) {
 			err := util.InternalServerErrorMsg(conn, fmt.Sprintf("failed to get edge node %s", os.Getenv(util.NODE_NAME_ENV)), req.Context().Value(util.STREAM_TRACE_ID).(string))
 			if err != nil {
 				klog.ErrorS(err, "failed to write resp msg", req.Context().Value(util.STREAM_TRACE_ID).(string))
+				return
 			}
 		} else {
 			tunnelConn, err := node.ConnectNode(util.HTTP_PROXY, net.JoinHostPort(host, port), req.Context())
