@@ -19,6 +19,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -35,6 +36,9 @@ import (
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 	authenticationv1 "k8s.io/api/authentication/v1"
+	v1 "k8s.io/api/core/v1"
+	discoveryv1 "k8s.io/api/discovery/v1"
+	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -56,14 +60,24 @@ type EdgeReverseProxy struct {
 
 	transport    *transport.EdgeTransport
 	cacheManager *cache.CacheManager
+
+	// the address list of lite-apiserver listen
+	listenAddress              string
+	port                       int
+	incluster                  bool
+	disableLoadBalancerIngress bool
 }
 
-func NewEdgeReverseProxy(transport *transport.EdgeTransport, backendUrl string, backendPort int, cacheManager *cache.CacheManager) *EdgeReverseProxy {
+func NewEdgeReverseProxy(transport *transport.EdgeTransport, backendUrl string, backendPort int, cacheManager *cache.CacheManager, listenAddress string, port int, incluster, disableLoadBalancerIngress bool) *EdgeReverseProxy {
 	p := &EdgeReverseProxy{
-		backendPort:  backendPort,
-		backendUrl:   backendUrl,
-		transport:    transport,
-		cacheManager: cacheManager,
+		backendPort:                backendPort,
+		backendUrl:                 backendUrl,
+		transport:                  transport,
+		cacheManager:               cacheManager,
+		listenAddress:              listenAddress,
+		port:                       port,
+		incluster:                  incluster,
+		disableLoadBalancerIngress: disableLoadBalancerIngress,
 	}
 
 	reverseProxy := &httputil.ReverseProxy{
@@ -133,6 +147,7 @@ func (p *EdgeReverseProxy) modifyResponse(resp *http.Response) error {
 			return nil
 		}
 	}
+	p.interceptResponse(info, resp)
 
 	// cache response data
 	multiRead := MultiWrite(resp.Body, 2)
@@ -147,6 +162,90 @@ func (p *EdgeReverseProxy) modifyResponse(resp *http.Response) error {
 	}(resp.Request, resp.Header.Clone(), resp.StatusCode, multiRead[1])
 
 	resp.Body = multiRead[0]
+
+	return nil
+}
+
+func (p *EdgeReverseProxy) interceptResponse(info *apirequest.RequestInfo, resp *http.Response) error {
+	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
+		body, _ := ioutil.ReadAll(resp.Body)
+		klog.Errorf("datadatadatadatadatadatadatadatadata: %s", body)
+		objList := &discoveryv1.EndpointSliceList{}
+		err := json.Unmarshal(body, objList)
+		if err == nil {
+			newItems := make([]discoveryv1.EndpointSlice, len(objList.Items))
+			for index, ep := range objList.Items {
+				if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
+					var ip string
+					var port int32
+					if p.incluster {
+						ip = p.listenAddress
+						port = int32(p.port)
+					} else {
+						ip = p.backendUrl
+						port = int32(p.backendPort)
+					}
+					if len(ep.Endpoints) > 0 {
+						ep.Endpoints[0].Addresses = []string{ip}
+						ep.Ports[0].Port = &port
+					}
+				}
+				newItems[index] = ep
+			}
+			objList.Items = newItems
+			data, _ := json.Marshal(objList)
+			resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+		}
+	}
+
+	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
+		body, _ := ioutil.ReadAll(resp.Body)
+		klog.Errorf("datadatadatadatadatadatadatadatadata: %s", body)
+		objList := &discoveryv1beta1.EndpointSliceList{}
+		err := json.Unmarshal(body, objList)
+		if err == nil {
+			newItems := make([]discoveryv1beta1.EndpointSlice, len(objList.Items))
+			for index, ep := range objList.Items {
+				if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
+					var ip string
+					var port int32
+					if p.incluster {
+						ip = p.listenAddress
+						port = int32(p.port)
+					} else {
+						ip = p.backendUrl
+						port = int32(p.backendPort)
+					}
+					if len(ep.Endpoints) > 0 {
+						ep.Endpoints[0].Addresses = []string{ip}
+						ep.Ports[0].Port = &port
+					}
+				}
+				newItems[index] = ep
+			}
+			objList.Items = newItems
+			data, _ := json.Marshal(objList)
+			resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+		}
+	}
+
+	if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
+		body, _ := ioutil.ReadAll(resp.Body)
+		objList := &v1.ServiceList{}
+		err := json.Unmarshal(body, objList)
+		if err == nil {
+			newItems := make([]v1.Service, len(objList.Items))
+			for index, svc := range objList.Items {
+				if len(svc.Status.LoadBalancer.Ingress) > 0 {
+					svc.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{}
+				}
+				newItems[index] = svc
+			}
+			objList.Items = newItems
+			data, _ := json.Marshal(objList)
+			resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+		}
+	}
 
 	return nil
 }
