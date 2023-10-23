@@ -169,7 +169,6 @@ func (p *EdgeReverseProxy) modifyResponse(resp *http.Response) error {
 func (p *EdgeReverseProxy) interceptResponse(info *apirequest.RequestInfo, resp *http.Response) error {
 	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
-		klog.Errorf("datadatadatadatadatadatadatadatadata: %s", body)
 		objList := &discoveryv1.EndpointSliceList{}
 		err := json.Unmarshal(body, objList)
 		if err == nil {
@@ -184,6 +183,10 @@ func (p *EdgeReverseProxy) interceptResponse(info *apirequest.RequestInfo, resp 
 					} else {
 						ip = p.backendUrl
 						port = int32(p.backendPort)
+						ips, err := net.LookupHost(p.backendUrl)
+						if err == nil && len(ips) > 0 {
+							ip = ips[0]
+						}
 					}
 					if len(ep.Endpoints) > 0 {
 						ep.Endpoints[0].Addresses = []string{ip}
@@ -200,7 +203,6 @@ func (p *EdgeReverseProxy) interceptResponse(info *apirequest.RequestInfo, resp 
 
 	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
-		klog.Errorf("datadatadatadatadatadatadatadatadata: %s", body)
 		objList := &discoveryv1beta1.EndpointSliceList{}
 		err := json.Unmarshal(body, objList)
 		if err == nil {
