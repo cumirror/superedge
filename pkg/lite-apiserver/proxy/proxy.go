@@ -40,16 +40,26 @@ import (
 	discoveryv1 "k8s.io/api/discovery/v1"
 	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer/streaming"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/klog/v2"
 
 	"github.com/superedge/superedge/pkg/lite-apiserver/cache"
 	"github.com/superedge/superedge/pkg/lite-apiserver/constant"
 	"github.com/superedge/superedge/pkg/lite-apiserver/transport"
+	jsonserializer "k8s.io/apimachinery/pkg/runtime/serializer/json"
 	apirequest "k8s.io/apiserver/pkg/endpoints/request"
+	restclientwatch "k8s.io/client-go/rest/watch"
 )
+
+type WatchEvent struct {
+	Type   watch.EventType `json:"type"`
+	Object runtime.Object  `json:"object"`
+}
 
 // EdgeReverseProxy represents a real pair of http request and response
 type EdgeReverseProxy struct {
@@ -166,89 +176,225 @@ func (p *EdgeReverseProxy) modifyResponse(resp *http.Response) error {
 	return nil
 }
 
-func (p *EdgeReverseProxy) interceptResponse(info *apirequest.RequestInfo, resp *http.Response) error {
+func (p *EdgeReverseProxy) modifyKubernetesV1EndpointSlice(ep *discoveryv1.EndpointSlice) {
+	if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
+		var ip string
+		var port int32
+		if p.incluster {
+			ip = p.listenAddress
+			port = int32(p.port)
+		} else {
+			ip = p.backendUrl
+			port = int32(p.backendPort)
+			ips, err := net.LookupHost(p.backendUrl)
+			if err == nil && len(ips) > 0 {
+				ip = ips[0]
+			}
+		}
+		if len(ep.Endpoints) > 0 {
+			ep.Endpoints[0].Addresses = []string{ip}
+			ep.Ports[0].Port = &port
+		}
+	}
+}
+
+func (p *EdgeReverseProxy) modifyKubernetesV1Beta1EndpointSlice(ep *discoveryv1beta1.EndpointSlice) {
+	if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
+		var ip string
+		var port int32
+		if p.incluster {
+			ip = p.listenAddress
+			port = int32(p.port)
+		} else {
+			ip = p.backendUrl
+			port = int32(p.backendPort)
+			ips, err := net.LookupHost(p.backendUrl)
+			if err == nil && len(ips) > 0 {
+				ip = ips[0]
+			}
+		}
+		if len(ep.Endpoints) > 0 {
+			ep.Endpoints[0].Addresses = []string{ip}
+			ep.Ports[0].Port = &port
+		}
+	}
+}
+
+func getWatchDecoder(body io.ReadCloser) *restclientwatch.Decoder {
+	framer := jsonserializer.Framer.NewFrameReader(body)
+	jsonSerializer := jsonserializer.NewSerializerWithOptions(jsonserializer.DefaultMetaFactory, scheme.Scheme, scheme.Scheme, jsonserializer.SerializerOptions{Yaml: false, Pretty: false, Strict: false})
+	streamingDecoder := streaming.NewDecoder(framer, jsonSerializer)
+	return restclientwatch.NewDecoder(streamingDecoder, unstructured.UnstructuredJSONScheme)
+}
+
+func (p *EdgeReverseProxy) interceptWatchResponse(info *apirequest.RequestInfo, resp *http.Response) error {
+	if info.Verb != constant.VerbWatch {
+		return nil
+	}
+
+	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
+		decoder := getWatchDecoder(resp.Body)
+		eventType, obj, err := decoder.Decode()
+		if err != nil {
+			klog.Errorf("decoder.Decode error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
+			return err
+		}
+
+		ep := &discoveryv1.EndpointSlice{}
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, ep)
+		if err != nil {
+			klog.Errorf("DefaultUnstructuredConverter.FromUnstructured error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
+			return err
+		}
+		if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
+			p.modifyKubernetesV1EndpointSlice(ep)
+		}
+
+		event := &WatchEvent{
+			Type:   eventType,
+			Object: ep,
+		}
+		data, err := json.Marshal(event)
+		if err != nil {
+			klog.Errorf("json.Marshal error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
+			return err
+		}
+		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
+		decoder := getWatchDecoder(resp.Body)
+		eventType, obj, err := decoder.Decode()
+		if err != nil {
+			klog.Errorf("decoder.Decode error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
+			return err
+		}
+
+		ep := &discoveryv1beta1.EndpointSlice{}
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, ep)
+		if err != nil {
+			klog.Errorf("DefaultUnstructuredConverter.FromUnstructured error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
+			return err
+		}
+		if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
+			p.modifyKubernetesV1Beta1EndpointSlice(ep)
+		}
+
+		event := &WatchEvent{
+			Type:   eventType,
+			Object: ep,
+		}
+		data, err := json.Marshal(event)
+		if err != nil {
+			klog.Errorf("json.Marshal error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
+			return err
+		}
+		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+	} else if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
+		decoder := getWatchDecoder(resp.Body)
+		eventType, obj, err := decoder.Decode()
+		if err != nil {
+			klog.Errorf("decoder.Decode error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
+			return err
+		}
+
+		svc := &v1.Service{}
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(obj.(*unstructured.Unstructured).Object, svc)
+		if err != nil {
+			klog.Errorf("DefaultUnstructuredConverter.FromUnstructured error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
+			return err
+		}
+		if len(svc.Status.LoadBalancer.Ingress) > 0 {
+			svc.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{}
+		}
+
+		event := &WatchEvent{
+			Type:   eventType,
+			Object: svc,
+		}
+		data, err := json.Marshal(event)
+		if err != nil {
+			klog.Errorf("json.Marshal error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
+			return err
+		}
+		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+	}
+
+	return nil
+}
+
+func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, resp *http.Response) error {
+	if info.Verb != constant.VerbList {
+		return nil
+	}
+
 	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &discoveryv1.EndpointSliceList{}
 		err := json.Unmarshal(body, objList)
-		if err == nil {
-			newItems := make([]discoveryv1.EndpointSlice, len(objList.Items))
-			for index, ep := range objList.Items {
-				if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
-					var ip string
-					var port int32
-					if p.incluster {
-						ip = p.listenAddress
-						port = int32(p.port)
-					} else {
-						ip = p.backendUrl
-						port = int32(p.backendPort)
-						ips, err := net.LookupHost(p.backendUrl)
-						if err == nil && len(ips) > 0 {
-							ip = ips[0]
-						}
-					}
-					if len(ep.Endpoints) > 0 {
-						ep.Endpoints[0].Addresses = []string{ip}
-						ep.Ports[0].Port = &port
-					}
-				}
-				newItems[index] = ep
-			}
-			objList.Items = newItems
-			data, _ := json.Marshal(objList)
-			resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+		if err != nil {
+			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
+			return err
 		}
-	}
-
-	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
+		newItems := make([]discoveryv1.EndpointSlice, len(objList.Items))
+		for index, ep := range objList.Items {
+			if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
+				p.modifyKubernetesV1EndpointSlice(&ep)
+			}
+			newItems[index] = ep
+		}
+		objList.Items = newItems
+		data, _ := json.Marshal(objList)
+		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &discoveryv1beta1.EndpointSliceList{}
 		err := json.Unmarshal(body, objList)
-		if err == nil {
-			newItems := make([]discoveryv1beta1.EndpointSlice, len(objList.Items))
-			for index, ep := range objList.Items {
-				if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
-					var ip string
-					var port int32
-					if p.incluster {
-						ip = p.listenAddress
-						port = int32(p.port)
-					} else {
-						ip = p.backendUrl
-						port = int32(p.backendPort)
-					}
-					if len(ep.Endpoints) > 0 {
-						ep.Endpoints[0].Addresses = []string{ip}
-						ep.Ports[0].Port = &port
-					}
-				}
-				newItems[index] = ep
-			}
-			objList.Items = newItems
-			data, _ := json.Marshal(objList)
-			resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+		if err != nil {
+			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
+			return err
 		}
-	}
-
-	if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
+		newItems := make([]discoveryv1beta1.EndpointSlice, len(objList.Items))
+		for index, ep := range objList.Items {
+			if ep.ObjectMeta.Name == "kubernetes" && ep.ObjectMeta.Namespace == "default" {
+				p.modifyKubernetesV1Beta1EndpointSlice(&ep)
+			}
+			newItems[index] = ep
+		}
+		objList.Items = newItems
+		data, _ := json.Marshal(objList)
+		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+	} else if strings.HasPrefix(info.Path, "/api/v1/services/") && p.disableLoadBalancerIngress {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &v1.ServiceList{}
 		err := json.Unmarshal(body, objList)
-		if err == nil {
-			newItems := make([]v1.Service, len(objList.Items))
-			for index, svc := range objList.Items {
-				if len(svc.Status.LoadBalancer.Ingress) > 0 {
-					svc.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{}
-				}
-				newItems[index] = svc
-			}
-			objList.Items = newItems
-			data, _ := json.Marshal(objList)
-			resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+		if err != nil {
+			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
+			return err
 		}
+		newItems := make([]v1.Service, len(objList.Items))
+		for index, svc := range objList.Items {
+			if len(svc.Status.LoadBalancer.Ingress) > 0 {
+				svc.Status.LoadBalancer.Ingress = []v1.LoadBalancerIngress{}
+			}
+			newItems[index] = svc
+		}
+		objList.Items = newItems
+		data, _ := json.Marshal(objList)
+		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	}
 
+	return nil
+}
+
+func (p *EdgeReverseProxy) interceptResponse(info *apirequest.RequestInfo, resp *http.Response) error {
+	if info.Verb == constant.VerbWatch {
+		if err := p.interceptWatchResponse(info, resp); err != nil {
+			return err
+		}
+	} else if info.Verb == constant.VerbList {
+		if err := p.interceptListResponse(info, resp); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
