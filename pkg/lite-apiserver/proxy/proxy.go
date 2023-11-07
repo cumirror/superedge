@@ -362,7 +362,7 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		objList.Items = newItems
 		data, _ := json.Marshal(objList)
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
-	} else if strings.HasPrefix(info.Path, "/api/v1/services/") && p.disableLoadBalancerIngress {
+	} else if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &v1.ServiceList{}
 		err := json.Unmarshal(body, objList)
