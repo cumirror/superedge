@@ -394,7 +394,16 @@ func (p *EdgeReverseProxy) interceptResponse(info *apirequest.RequestInfo, resp 
 		if err := p.interceptListResponse(info, resp); err != nil {
 			return err
 		}
-	}
+	} //TODO:info.Verb ==constant.VerbGet
+	//  /apis/discovery.k8s.io/v1/namespaces/default/endpointslices/kubernetes
+	//  /apis/discovery.k8s.io/v1beta1/namespaces/default/endpointslices/kubernetes
+	//  pattern := "^/api/v1/namespaces/[^/]+/services/[^/]+"
+
+	// and some VerbList
+	//  /apis/discovery.k8s.io/v1/namespaces/default/endpointslices
+	//  /apis/discovery.k8s.io/v1beta1/namespaces/default/endpointslices
+	//  pattern := "^/api/v1/namespaces/[^/]+/services"
+
 	return nil
 }
 
