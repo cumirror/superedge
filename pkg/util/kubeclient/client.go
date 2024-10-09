@@ -20,13 +20,14 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"k8s.io/apimachinery/pkg/util/wait"
-	restclient "k8s.io/client-go/rest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/util/wait"
+	restclient "k8s.io/client-go/rest"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,6 +37,11 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/superedge/superedge/pkg/util"
+)
+
+const (
+	QPS   float32 = 50.0
+	Burst int     = 100
 )
 
 func GetClientSet(kubeconfigFile string) (*kubernetes.Clientset, error) {
@@ -103,6 +109,9 @@ func GetInclusterClientSet(kubeConfigPath string) (*kubernetes.Clientset, error)
 	if err != nil {
 		return nil, err
 	}
+	clientConfig.QPS = QPS
+	clientConfig.Burst = Burst
+
 	kubeClient, err := kubernetes.NewForConfig(clientConfig)
 	if err != nil {
 		klog.Errorf("Get kube client error: %v", err)

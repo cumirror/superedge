@@ -346,18 +346,30 @@ func loadCacheFromLocalFile() error {
 	}
 
 	for _, v := range hosts2Array(hosts) {
+		if len(v) != 2 {
+			continue
+		}
 		Route.EdgeNode[string(v[1])] = string(v[0])
 	}
 
 	for _, v := range hosts2Array(cloudNodeFile) {
+		if len(v) != 2 {
+			continue
+		}
 		Route.CloudNode[string(v[1])] = string(v[0])
 	}
 
 	for _, v := range service2Array(servicesFile) {
+		if len(v) != 2 {
+			continue
+		}
 		Route.ServicesMap[string(v[0])] = string(v[1])
 	}
 
 	for _, v := range service2Array(userServiceFile) {
+		if len(v) != 2 {
+			continue
+		}
 		Route.UserServicesMap[string(v[0])] = string(v[1])
 	}
 	return nil
