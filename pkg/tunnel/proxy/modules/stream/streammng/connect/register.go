@@ -20,20 +20,21 @@ import (
 	"bufio"
 	"bytes"
 	cctx "context"
+	"io"
+	"net"
+	"os"
+	"strings"
+	"time"
+
 	"github.com/superedge/superedge/pkg/tunnel/conf"
 	"github.com/superedge/superedge/pkg/tunnel/tunnelcontext"
 	"github.com/superedge/superedge/pkg/tunnel/util"
-	"io"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
-	"net"
-	"os"
-	"strings"
-	"time"
 )
 
 var register *RegisterNode
@@ -52,6 +53,8 @@ func InitRegister() error {
 		klog.ErrorS(err, "failed to get InClusterConfig")
 		return err
 	}
+	config.QPS = 150
+	config.Burst = 200
 	clientSet, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		klog.ErrorS(err, "failed to get  clientSet")
