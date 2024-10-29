@@ -259,6 +259,7 @@ func (p *EdgeReverseProxy) interceptWatchResponse(info *apirequest.RequestInfo, 
 			klog.Errorf("json.Marshal error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
 			return err
 		}
+		klog.Infof("watch rsp v1 ep: %s", string(data))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
 		decoder := getWatchDecoder(resp.Body)
@@ -287,6 +288,7 @@ func (p *EdgeReverseProxy) interceptWatchResponse(info *apirequest.RequestInfo, 
 			klog.Errorf("json.Marshal error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
 			return err
 		}
+		klog.Infof("watch rsp v1beta1 ep: %s", string(data))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	} else if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
 		decoder := getWatchDecoder(resp.Body)
@@ -315,6 +317,7 @@ func (p *EdgeReverseProxy) interceptWatchResponse(info *apirequest.RequestInfo, 
 			klog.Errorf("json.Marshal error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
 			return err
 		}
+		klog.Infof("watch rsp v1 svc: %s", string(data))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	}
 
@@ -329,6 +332,7 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &discoveryv1.EndpointSliceList{}
+		klog.Infof("Getting v1 endpointslices: %s",string(body))
 		err := json.Unmarshal(body, objList)
 		if err != nil {
 			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
@@ -343,10 +347,12 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		}
 		objList.Items = newItems
 		data, _ := json.Marshal(objList)
+		klog.Infof("rsp v1 endpointslices: %s",string(data))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &discoveryv1beta1.EndpointSliceList{}
+		klog.Infof("Getting v1beta1 endpointslices: %s",string(body))
 		err := json.Unmarshal(body, objList)
 		if err != nil {
 			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
@@ -361,10 +367,12 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		}
 		objList.Items = newItems
 		data, _ := json.Marshal(objList)
+		klog.Infof("rsp v1beta1 endpointslices: %s",string(data))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	} else if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &v1.ServiceList{}
+		klog.Infof("Getting services: %s",string(body))
 		err := json.Unmarshal(body, objList)
 		if err != nil {
 			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
@@ -379,6 +387,7 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		}
 		objList.Items = newItems
 		data, _ := json.Marshal(objList)
+		klog.Infof("rsp services: %s",string(data))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	}
 
