@@ -76,6 +76,8 @@ type EdgeReverseProxy struct {
 	port                       int
 	incluster                  bool
 	disableLoadBalancerIngress bool
+
+	skipModify bool
 }
 
 func NewEdgeReverseProxy(transport *transport.EdgeTransport, backendUrl string, backendPort int, cacheManager *cache.CacheManager, listenAddress string, port int, incluster, disableLoadBalancerIngress bool) *EdgeReverseProxy {
@@ -90,6 +92,8 @@ func NewEdgeReverseProxy(transport *transport.EdgeTransport, backendUrl string, 
 		disableLoadBalancerIngress: disableLoadBalancerIngress,
 	}
 
+	sm := os.Getenv("skipmodify")
+
 	reverseProxy := &httputil.ReverseProxy{
 		Director:       p.makeDirector,
 		Transport:      p.transport,
@@ -100,6 +104,7 @@ func NewEdgeReverseProxy(transport *transport.EdgeTransport, backendUrl string, 
 	reverseProxy.FlushInterval = -1
 
 	p.backendProxy = reverseProxy
+	p.skipModify = sm == "true"
 	return p
 }
 
@@ -157,7 +162,10 @@ func (p *EdgeReverseProxy) modifyResponse(resp *http.Response) error {
 			return nil
 		}
 	}
-	p.interceptResponse(info, resp)
+
+	if !p.skipModify {
+		p.interceptResponse(info, resp)
+	}
 
 	// cache response data
 	multiRead := MultiWrite(resp.Body, 2)
@@ -332,7 +340,7 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &discoveryv1.EndpointSliceList{}
-		klog.Infof("Getting v1 endpointslices: %s",string(body))
+		klog.Infof("Getting v1 endpointslices: %s", string(body))
 		err := json.Unmarshal(body, objList)
 		if err != nil {
 			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
@@ -347,12 +355,12 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		}
 		objList.Items = newItems
 		data, _ := json.Marshal(objList)
-		klog.Infof("rsp v1 endpointslices: %s",string(data))
+		klog.Infof("rsp v1 endpointslices: %s", string(data))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &discoveryv1beta1.EndpointSliceList{}
-		klog.Infof("Getting v1beta1 endpointslices: %s",string(body))
+		klog.Infof("Getting v1beta1 endpointslices: %s", string(body))
 		err := json.Unmarshal(body, objList)
 		if err != nil {
 			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
@@ -367,12 +375,12 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		}
 		objList.Items = newItems
 		data, _ := json.Marshal(objList)
-		klog.Infof("rsp v1beta1 endpointslices: %s",string(data))
+		klog.Infof("rsp v1beta1 endpointslices: %s", string(data))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	} else if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &v1.ServiceList{}
-		klog.Infof("Getting services: %s",string(body))
+		klog.Infof("Getting services: %s", string(body))
 		err := json.Unmarshal(body, objList)
 		if err != nil {
 			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
@@ -387,7 +395,7 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		}
 		objList.Items = newItems
 		data, _ := json.Marshal(objList)
-		klog.Infof("rsp services: %s",string(data))
+		klog.Infof("rsp services: %s", string(data))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	}
 
