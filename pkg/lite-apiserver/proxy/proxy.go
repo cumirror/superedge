@@ -165,7 +165,7 @@ func (p *EdgeReverseProxy) modifyResponse(resp *http.Response) error {
 
 	if !p.skipModify {
 		if err := p.interceptResponse(info, resp); err != nil {
-			klog.Errorf("interceptResponse %v error: %v", info, err)
+			klog.Errorf("interceptResponse %v %s error: %v", info, resp.Header.Get("Content-Encoding"), err)
 		}
 	}
 
