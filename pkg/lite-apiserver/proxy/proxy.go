@@ -164,7 +164,9 @@ func (p *EdgeReverseProxy) modifyResponse(resp *http.Response) error {
 	}
 
 	if !p.skipModify {
-		p.interceptResponse(info, resp)
+		if err := p.interceptResponse(info, resp); err != nil {
+			klog.Errorf("interceptResponse %v error: %v", info, err)
+		}
 	}
 
 	// cache response data
