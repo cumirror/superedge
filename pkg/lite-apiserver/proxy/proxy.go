@@ -260,6 +260,10 @@ func (p *EdgeReverseProxy) interceptWatchResponse(info *apirequest.RequestInfo, 
 
 		event := &WatchEvent{
 			Type:   eventType,
+			Object: ep.DeepCopyObject(),
+		}
+		event2 := &WatchEvent{
+			Type:   eventType,
 			Object: ep,
 		}
 		data, err := json.Marshal(event)
@@ -267,7 +271,9 @@ func (p *EdgeReverseProxy) interceptWatchResponse(info *apirequest.RequestInfo, 
 			klog.Errorf("json.Marshal error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
 			return err
 		}
-		klog.Infof("watch rsp v1 ep: %s", string(data))
+		data2, _ := json.Marshal(obj)
+		data3, _ := json.Marshal(event2)
+		klog.Infof("watch rsp v1 ep: %s, object %s, origion %s", string(data), string(data2), string(data3))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
 		decoder := getWatchDecoder(resp.Body)
@@ -289,6 +295,10 @@ func (p *EdgeReverseProxy) interceptWatchResponse(info *apirequest.RequestInfo, 
 
 		event := &WatchEvent{
 			Type:   eventType,
+			Object: ep.DeepCopyObject(),
+		}
+		event2 := &WatchEvent{
+			Type:   eventType,
 			Object: ep,
 		}
 		data, err := json.Marshal(event)
@@ -296,7 +306,9 @@ func (p *EdgeReverseProxy) interceptWatchResponse(info *apirequest.RequestInfo, 
 			klog.Errorf("json.Marshal error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
 			return err
 		}
-		klog.Infof("watch rsp v1beta1 ep: %s", string(data))
+		data2, _ := json.Marshal(obj)
+		data3, _ := json.Marshal(event2)
+		klog.Infof("watch rsp v1beta1 ep: %s, object %s, origion %s", string(data), string(data2), string(data3))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	} else if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
 		decoder := getWatchDecoder(resp.Body)
@@ -320,12 +332,18 @@ func (p *EdgeReverseProxy) interceptWatchResponse(info *apirequest.RequestInfo, 
 			Type:   eventType,
 			Object: svc,
 		}
+		event2 := &WatchEvent{
+			Type:   eventType,
+			Object: svc.DeepCopyObject(),
+		}
 		data, err := json.Marshal(event)
 		if err != nil {
 			klog.Errorf("json.Marshal error: %v,info.Path: %v,info.Verb: %v", err, info.Path, info.Verb)
 			return err
 		}
-		klog.Infof("watch rsp v1 svc: %s", string(data))
+		data2, _ := json.Marshal(obj)
+		data3, _ := json.Marshal(event2)
+		klog.Infof("watch rsp v1 svc: %s, object %s, origion %s", string(data), string(data2), string(data3))
 		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	}
 
