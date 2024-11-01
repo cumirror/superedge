@@ -405,7 +405,7 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		} else if resp.Header.Get("Content-Encoding") == "" {
 			rspData = bytes.NewBuffer(content)
 		}
-		klog.Infof("rsp v1 endpointslices: %s", string(data))
+		klog.Infof("rsp v1 endpointslices: %s", string(content))
 		resp.Body = ioutil.NopCloser(rspData)
 	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
