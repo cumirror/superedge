@@ -18,6 +18,7 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -359,11 +360,28 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 
 	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
+		var data []byte
+		if resp.Header.Get("Content-Encoding") == "gzip" {
+			gzipReader, err := gzip.NewReader(bytes.NewReader(body))
+			if err != nil {
+				return err
+			}
+			data, err = ioutil.ReadAll(gzipReader)
+			if err != nil {
+				return err
+			}
+			gzipReader.Close()
+		} else if resp.Header.Get("Content-Encoding") == "" {
+			data = body
+		} else {
+			return fmt.Errorf("Content-Encoding %s not support", resp.Header.Get("Content-Encoding"))
+		}
+
 		objList := &discoveryv1.EndpointSliceList{}
-		klog.Infof("Getting v1 endpointslices: %s", string(body))
-		err := json.Unmarshal(body, objList)
+		klog.Infof("Getting v1 endpointslices: %s", string(data))
+		err := json.Unmarshal(data, objList)
 		if err != nil {
-			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
+			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(data))
 			return err
 		}
 		newItems := make([]discoveryv1.EndpointSlice, len(objList.Items))
@@ -374,9 +392,21 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 			newItems[index] = ep
 		}
 		objList.Items = newItems
-		data, _ := json.Marshal(objList)
+		content, _ := json.Marshal(objList)
+		var rspData = bytes.NewBuffer(nil)
+		if resp.Header.Get("Content-Encoding") == "gzip" {
+			gzipWriter := gzip.NewWriter(rspData)
+			if _, err := gzipWriter.Write(content); err != nil {
+				return err
+			}
+			if err := gzipWriter.Close(); err != nil {
+				return err
+			}
+		} else if resp.Header.Get("Content-Encoding") == "" {
+			rspData = bytes.NewBuffer(content)
+		}
 		klog.Infof("rsp v1 endpointslices: %s", string(data))
-		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+		resp.Body = ioutil.NopCloser(rspData)
 	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
 		objList := &discoveryv1beta1.EndpointSliceList{}
