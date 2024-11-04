@@ -330,7 +330,14 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		return nil
 	}
 
-	//	当前只支持gzip压缩和非压缩场景，其他场景仅做日志输出，跳过劫持
+	// 仅处理下面case，其他场景不处理
+	if !strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") &&
+		!strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") &&
+		!(strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress) {
+		return nil
+	}
+
+	// 当前只支持gzip压缩和非压缩场景，其他场景仅做日志输出，跳过处理
 	if resp.Header.Get("Content-Encoding") != "gzip" && resp.Header.Get("Content-Encoding") != "" {
 		klog.Warningf("Content-Encoding %s not support for %v", resp.Header.Get("Content-Encoding"), info.Path)
 		return nil
