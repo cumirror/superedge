@@ -336,23 +336,23 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		return nil
 	}
 
-	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
-		body, _ := ioutil.ReadAll(resp.Body)
-		var data []byte
-		if resp.Header.Get("Content-Encoding") == "" {
-			data = body
-		} else {
-			gzipReader, err := gzip.NewReader(bytes.NewReader(body))
-			if err != nil {
-				return err
-			}
-			data, err = ioutil.ReadAll(gzipReader)
-			if err != nil {
-				return err
-			}
-			gzipReader.Close()
+	body, _ := ioutil.ReadAll(resp.Body)
+	var data, rspContent []byte
+	if resp.Header.Get("Content-Encoding") == "" {
+		data = body
+	} else {
+		gzipReader, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return err
 		}
+		data, err = ioutil.ReadAll(gzipReader)
+		if err != nil {
+			return err
+		}
+		gzipReader.Close()
+	}
 
+	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
 		objList := &discoveryv1.EndpointSliceList{}
 		err := json.Unmarshal(data, objList)
 		if err != nil {
@@ -367,37 +367,8 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 			newItems[index] = ep
 		}
 		objList.Items = newItems
-		content, _ := json.Marshal(objList)
-		var rspData = bytes.NewBuffer(nil)
-		if resp.Header.Get("Content-Encoding") == "" {
-			rspData = bytes.NewBuffer(content)
-		} else {
-			gzipWriter := gzip.NewWriter(rspData)
-			if _, err := gzipWriter.Write(content); err != nil {
-				return err
-			}
-			if err := gzipWriter.Close(); err != nil {
-				return err
-			}
-		}
-		resp.Body = ioutil.NopCloser(rspData)
+		rspContent, _ = json.Marshal(objList)
 	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
-		body, _ := ioutil.ReadAll(resp.Body)
-		var data []byte
-		if resp.Header.Get("Content-Encoding") == "" {
-			data = body
-		} else {
-			gzipReader, err := gzip.NewReader(bytes.NewReader(body))
-			if err != nil {
-				return err
-			}
-			data, err = ioutil.ReadAll(gzipReader)
-			if err != nil {
-				return err
-			}
-			gzipReader.Close()
-		}
-
 		objList := &discoveryv1beta1.EndpointSliceList{}
 		err := json.Unmarshal(data, objList)
 		if err != nil {
@@ -412,37 +383,8 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 			newItems[index] = ep
 		}
 		objList.Items = newItems
-		content, _ := json.Marshal(objList)
-		var rspData = bytes.NewBuffer(nil)
-		if resp.Header.Get("Content-Encoding") == "" {
-			rspData = bytes.NewBuffer(content)
-		} else {
-			gzipWriter := gzip.NewWriter(rspData)
-			if _, err := gzipWriter.Write(content); err != nil {
-				return err
-			}
-			if err := gzipWriter.Close(); err != nil {
-				return err
-			}
-		}
-		resp.Body = ioutil.NopCloser(rspData)
+		rspContent, _ = json.Marshal(objList)
 	} else if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
-		body, _ := ioutil.ReadAll(resp.Body)
-		var data []byte
-		if resp.Header.Get("Content-Encoding") == "" {
-			data = body
-		} else {
-			gzipReader, err := gzip.NewReader(bytes.NewReader(body))
-			if err != nil {
-				return err
-			}
-			data, err = ioutil.ReadAll(gzipReader)
-			if err != nil {
-				return err
-			}
-			gzipReader.Close()
-		}
-
 		objList := &v1.ServiceList{}
 		err := json.Unmarshal(data, objList)
 		if err != nil {
@@ -457,22 +399,20 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 			newItems[index] = svc
 		}
 		objList.Items = newItems
-		content, _ := json.Marshal(objList)
-		var rspData = bytes.NewBuffer(nil)
-		if resp.Header.Get("Content-Encoding") == "" {
-			rspData = bytes.NewBuffer(content)
-		} else {
-			gzipWriter := gzip.NewWriter(rspData)
-			if _, err := gzipWriter.Write(content); err != nil {
-				return err
-			}
-			if err := gzipWriter.Close(); err != nil {
-				return err
-			}
-		}
-		resp.Body = ioutil.NopCloser(rspData)
+		rspContent, _ = json.Marshal(objList)
 	}
 
+	var rspData = bytes.NewBuffer(nil)
+	if resp.Header.Get("Content-Encoding") == "" {
+		rspData = bytes.NewBuffer(rspContent)
+	} else {
+		gzipWriter := gzip.NewWriter(rspData)
+		if _, err := gzipWriter.Write(rspContent); err != nil {
+			return err
+		}
+		gzipWriter.Close()
+	}
+	resp.Body = ioutil.NopCloser(rspData)
 	return nil
 }
 
