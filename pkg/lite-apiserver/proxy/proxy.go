@@ -358,10 +358,18 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		return nil
 	}
 
+	//	当前只支持gzip压缩和非压缩场景，其他场景仅做日志输出，跳过劫持
+	if resp.Header.Get("Content-Encoding") != "gzip" && resp.Header.Get("Content-Encoding") != "" {
+		klog.Warningf("Content-Encoding %s not support for %v", resp.Header.Get("Content-Encoding"), info.Path)
+		return nil
+	}
+
 	if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
 		var data []byte
-		if resp.Header.Get("Content-Encoding") == "gzip" {
+		if resp.Header.Get("Content-Encoding") == "" {
+			data = body
+		} else {
 			gzipReader, err := gzip.NewReader(bytes.NewReader(body))
 			if err != nil {
 				return err
@@ -371,14 +379,9 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 				return err
 			}
 			gzipReader.Close()
-		} else if resp.Header.Get("Content-Encoding") == "" {
-			data = body
-		} else {
-			return fmt.Errorf("Content-Encoding %s not support", resp.Header.Get("Content-Encoding"))
 		}
 
 		objList := &discoveryv1.EndpointSliceList{}
-		klog.Infof("Getting v1 endpointslices: %s", string(data))
 		err := json.Unmarshal(data, objList)
 		if err != nil {
 			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(data))
@@ -394,7 +397,9 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 		objList.Items = newItems
 		content, _ := json.Marshal(objList)
 		var rspData = bytes.NewBuffer(nil)
-		if resp.Header.Get("Content-Encoding") == "gzip" {
+		if resp.Header.Get("Content-Encoding") == "" {
+			rspData = bytes.NewBuffer(content)
+		} else {
 			gzipWriter := gzip.NewWriter(rspData)
 			if _, err := gzipWriter.Write(content); err != nil {
 				return err
@@ -402,18 +407,29 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 			if err := gzipWriter.Close(); err != nil {
 				return err
 			}
-		} else if resp.Header.Get("Content-Encoding") == "" {
-			rspData = bytes.NewBuffer(content)
 		}
-		klog.Infof("rsp v1 endpointslices: %s", string(content))
 		resp.Body = ioutil.NopCloser(rspData)
 	} else if strings.HasPrefix(info.Path, "/apis/discovery.k8s.io/v1beta1/endpointslices") {
 		body, _ := ioutil.ReadAll(resp.Body)
+		var data []byte
+		if resp.Header.Get("Content-Encoding") == "" {
+			data = body
+		} else {
+			gzipReader, err := gzip.NewReader(bytes.NewReader(body))
+			if err != nil {
+				return err
+			}
+			data, err = ioutil.ReadAll(gzipReader)
+			if err != nil {
+				return err
+			}
+			gzipReader.Close()
+		}
+
 		objList := &discoveryv1beta1.EndpointSliceList{}
-		klog.Infof("Getting v1beta1 endpointslices: %s", string(body))
-		err := json.Unmarshal(body, objList)
+		err := json.Unmarshal(data, objList)
 		if err != nil {
-			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
+			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(data))
 			return err
 		}
 		newItems := make([]discoveryv1beta1.EndpointSlice, len(objList.Items))
@@ -424,16 +440,41 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 			newItems[index] = ep
 		}
 		objList.Items = newItems
-		data, _ := json.Marshal(objList)
-		klog.Infof("rsp v1beta1 endpointslices: %s", string(data))
-		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+		content, _ := json.Marshal(objList)
+		var rspData = bytes.NewBuffer(nil)
+		if resp.Header.Get("Content-Encoding") == "" {
+			rspData = bytes.NewBuffer(content)
+		} else {
+			gzipWriter := gzip.NewWriter(rspData)
+			if _, err := gzipWriter.Write(content); err != nil {
+				return err
+			}
+			if err := gzipWriter.Close(); err != nil {
+				return err
+			}
+		}
+		resp.Body = ioutil.NopCloser(rspData)
 	} else if strings.HasPrefix(info.Path, "/api/v1/services") && p.disableLoadBalancerIngress {
 		body, _ := ioutil.ReadAll(resp.Body)
+		var data []byte
+		if resp.Header.Get("Content-Encoding") == "" {
+			data = body
+		} else {
+			gzipReader, err := gzip.NewReader(bytes.NewReader(body))
+			if err != nil {
+				return err
+			}
+			data, err = ioutil.ReadAll(gzipReader)
+			if err != nil {
+				return err
+			}
+			gzipReader.Close()
+		}
+
 		objList := &v1.ServiceList{}
-		klog.Infof("Getting services: %s", string(body))
-		err := json.Unmarshal(body, objList)
+		err := json.Unmarshal(data, objList)
 		if err != nil {
-			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(body))
+			klog.Errorf("json.Unmarshal error: %v,info.Path: %v,info.Verb: %v,body: %v", err, info.Path, info.Verb, string(data))
 			return err
 		}
 		newItems := make([]v1.Service, len(objList.Items))
@@ -444,9 +485,20 @@ func (p *EdgeReverseProxy) interceptListResponse(info *apirequest.RequestInfo, r
 			newItems[index] = svc
 		}
 		objList.Items = newItems
-		data, _ := json.Marshal(objList)
-		klog.Infof("rsp services: %s", string(data))
-		resp.Body = ioutil.NopCloser(bytes.NewBuffer(data))
+		content, _ := json.Marshal(objList)
+		var rspData = bytes.NewBuffer(nil)
+		if resp.Header.Get("Content-Encoding") == "" {
+			rspData = bytes.NewBuffer(content)
+		} else {
+			gzipWriter := gzip.NewWriter(rspData)
+			if _, err := gzipWriter.Write(content); err != nil {
+				return err
+			}
+			if err := gzipWriter.Close(); err != nil {
+				return err
+			}
+		}
+		resp.Body = ioutil.NopCloser(rspData)
 	}
 
 	return nil
